@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAM-YOLO: Void Prediction</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f9f9f9;
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+
+        section {
+            margin: 20px 0;
+            padding: 20px;
+            background: #fff;
+            box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+        }
+
+        canvas {
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            display: block;
+            margin: 20px auto;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 14px;
+            cursor: pointer;
+            border-radius: 5px;
+            transition: background-color 0.3s ease;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        .upload-section {
+            text-align: center;
+        }
+
+        .class-management {
+            text-align: center;
+        }
+
+        .class-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            list-style: none;
+            padding: 0;
+        }
+
+        .class-item {
+            padding: 5px 10px;
+            border-radius: 5px;
+            background-color: #f4f4f4;
+            border: 1px solid #ccc;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .class-item:hover {
+            background-color: #ddd;
+        }
+
+        .class-item.active {
+            background-color: #4CAF50;
+            color: white;
+            border-color: #45a049;
+        }
+
+        #annotated-image {
+            display: block;
+            max-width: 100%;
+            margin: 20px auto;
+            border: 2px solid #4CAF50;
+            border-radius: 8px;
+        }
+
+        .status {
+            text-align: center;
+            margin-top: 10px;
+            font-weight: bold;
+        }
+
+        .status.success {
+            color: #4CAF50;
+        }
+
+        .status.error {
+            color: #f44336;
+        }
+        
+    </style>
+</head>
+<body>
+    <h1>Images Labelisation - SAM</h1>
+
+    <!-- Section 1: Upload Image -->
+    <section class="upload-section">
+        <form class="p-3 text-center" method="post" enctype="multipart/form-data">
+            <label for="image" class="form-label">Download an image :</label><br>
+            <input type="file" id="image" name="image" accept="image/*" required>
+            <br>
+            <button type="submit">Download</button>
+        </form>
+    </section>
+
+    {% if uploaded_image %}
+    <!-- Section 2: Canvas for Image & Section 3: Annotated Image-->
+
+    <section>
+        <h2>Image UploadeD</h2>
+        <canvas id="image-canvas"></canvas>
+        <img id="annotated-image" style="display: none;" alt="Image Annotée">
+    </section>
+
+    <!-- Section 4: Manage Classes -->
+    <section class="class-management">
+        <h3>Add a class :</h3>
+        <input type="text" id="class-name" placeholder="Entrez une classe">
+        <button id="add-class">Add</button>
+        <h4>Available Classes  :</h4>
+        <ul id="class-list" class="class-list"></ul>
+    </section>
+
+    <!-- Section 5: Controls -->
+    <section>
+        <div class="controls">
+            <button id="segment-button" disabled>Lancer la Segmentation</button>
+        </div>
+    </section>
+
+    <!-- Section 6: Object Detection with YOLO -->
+    <section class="upload-section">
+        <h2>Détection d'Objets avec YOLO</h2>
+        <form id="detect-form" method="POST" enctype="multipart/form-data" action="/detect">
+            <label for="detect-image">Télécharger une image pour la détection :</label><br>
+            <input type="file" id="detect-image" name="image" accept="image/*" required>
+            <br>
+            <button type="submit">Détecter les Objets</button>
+        </form>
+        <div id="detection-result" style="margin-top: 20px;">
+            <h3>Résultat de la Détection :</h3>
+            <img id="detected-image" style="display: none; max-width: 100%; border: 2px solid #4CAF50; border-radius: 8px;" alt="Résultat de la Détection">
+        </div>
+    </section>
+        <!-- Section 7: Bouton pour réentraîner le modèle YOLO -->
+    <section>
+        <h2>Réentraîner le Modèle YOLO</h2>
+        <button id="retrain-button">Réentraîner le Modèle</button>
+        <div id="retrain-status" class="status" style="margin-top: 20px;"></div>
+    </section>
+    {% endif %}
+
+    <script>
+        let canvas = document.getElementById('image-canvas');
+        let ctx = canvas ? canvas.getContext('2d') : null;
+        let points = [];
+        let currentClass = null;
+
+        // {% if uploaded_image %}
+        // Charger l'image téléchargée
+        const img = new Image();
+        img.src = "{{ url_for('static', filename='uploads/' + uploaded_image) }}";
+        img.onload = () => {
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.drawImage(img, 0, 0);
+        };
+
+        // Gestion des classes
+        document.getElementById('add-class').addEventListener('click', () => {
+            const className = document.getElementById('class-name').value.trim();
+            if (!className) return;
+
+            const li = document.createElement('li');
+            li.textContent = className;
+            li.classList.add('class-item');
+            li.onclick = () => {
+                // Marquer la classe comme sélectionnée
+                document.querySelectorAll('.class-item').forEach(item => item.classList.remove('active'));
+                li.classList.add('active');
+                currentClass = className;
+            };
+
+            document.getElementById('class-list').appendChild(li);
+            document.getElementById('class-name').value = '';
+        });
+
+        // Ajouter un point sur le canvas
+        canvas.addEventListener('click', event => {
+            if (!currentClass) {
+                alert('Veuillez sélectionner une classe.');
+                return;
+            }
+
+            const rect = canvas.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+            points.push({ x, y, class: currentClass });
+
+            // Dessiner le point sur le canvas
+            ctx.fillStyle = 'red';
+            ctx.beginPath();
+            ctx.arc(x, y, 5, 0, 2 * Math.PI);
+            ctx.fill();
+
+            // Activer le bouton Segmentation
+            document.getElementById('segment-button').disabled = points.length === 0;
+        });
+
+        // Lancer la segmentation
+        document.getElementById('segment-button').addEventListener('click', () => {
+            const status = document.createElement('div');
+            status.className = 'status';
+            document.body.appendChild(status);
+
+            fetch('/segment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    image_name: "{{ uploaded_image }}",
+                    points: points
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    status.textContent = 'Segmentation terminée !';
+                    status.classList.add('success');
+                    const annotatedImg = document.getElementById('annotated-image');
+                    annotatedImg.src = "{{ url_for('static', filename='') }}" + data.annotated_image;
+                    annotatedImg.style.display = 'block';
+                } else {
+                    status.textContent = 'Erreur : ' + data.error;
+                    status.classList.add('error');
+                }
+            })
+            .catch(err => {
+                status.textContent = 'Erreur de réseau.';
+                status.classList.add('error');
+                console.error('Erreur:', err);
+            });
+        });
+           // Gérer la soumission du formulaire pour la détection d'objets avec YOLO
+        document.getElementById('detect-form').addEventListener('submit', function(event) {
+            event.preventDefault();
+
+            const formData = new FormData(this);
+            fetch('/detect', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    status.textContent = 'Détection terminée !';
+                    const detectedImg = document.getElementById('detected-image');
+                    detectedImg.src = "{{ url_for('static', filename='') }}" + data.detected_image;
+                    detectedImg.style.display = 'block';
+                } else {
+                    alert('Erreur lors de la détection : ' + data.error);
+                }
+            })
+            .catch(err => {
+                status.textContent = 'Erreur de réseau.';
+                status.classList.add('error');
+                console.error('Erreur:', err);
+            });
+        });
+            // Gérer le clic sur le bouton de réentraînement
+        document.getElementById('retrain-button').addEventListener('click', function() {
+            const statusDiv = document.getElementById('retrain-status');
+            statusDiv.textContent = 'Réentraînement en cours...';
+            statusDiv.className = 'status';
+
+            fetch('/retrain', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        statusDiv.textContent = 'Réentraînement terminé avec succès !';
+                        statusDiv.classList.add('success');
+                    } else {
+                        statusDiv.textContent = 'Erreur lors du réentraînement : ' + data.error;
+                        statusDiv.classList.add('error');
+                    }
+                })
+                .catch(err => {
+                    statusDiv.textContent = 'Erreur de réseau.';
+                    statusDiv.classList.add('error');
+                    console.error('Erreur:', err);
+                });
+        });
+        // {% endif %}
+    </script>
+</body>
+</html>
