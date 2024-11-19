@@ -1,5 +1,6 @@
 from flask import Flask, request, render_template, jsonify, send_from_directory
 import os
+import requests
 import shutil
 import torch
 import numpy as np
@@ -8,7 +9,7 @@ from segment_anything import sam_model_registry, SamPredictor
 from werkzeug.utils import secure_filename
 import warnings
 from ultralytics import YOLO
-from download_model import download_sam
+# from download_model import download_sam
 
 # Initialisation de Flask
 app = Flask(
@@ -19,8 +20,20 @@ app = Flask(
 app.config['UPLOAD_FOLDER'] = os.path.join('static', 'uploads')
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
+#Download model
+# Créer le dossier cible s'il n'existe pas
+os.makedirs("models", exist_ok=True)
+
+# URL du modèle et chemin de destination
+url = "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth"
+output_path = "models/sam_vit_b_01ec64.pth"
+    # Téléchargement
+print("Téléchargement du modèle...")
+response = requests.get(url, stream=True)
+with open(output_path, "wb") as f:
+    for chunk in response.iter_content(chunk_size=8192):
+        f.write(chunk)
 # Charger le modèle SAM
-download_sam()
 MODEL_TYPE = "vit_b"
 MODEL_PATH = os.path.join('models', 'sam_vit_b_01ec64.pth')
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
