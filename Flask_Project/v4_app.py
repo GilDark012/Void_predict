@@ -8,7 +8,7 @@ from segment_anything import sam_model_registry, SamPredictor
 from werkzeug.utils import secure_filename
 import warnings
 from ultralytics import YOLO
-
+from download_model import download_sam
 
 # Initialisation de Flask
 app = Flask(
@@ -20,6 +20,7 @@ app.config['UPLOAD_FOLDER'] = os.path.join('static', 'uploads')
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # Charger le modèle SAM
+download_sam()
 MODEL_TYPE = "vit_b"
 MODEL_PATH = os.path.join('models', 'sam_vit_b_01ec64.pth')
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
